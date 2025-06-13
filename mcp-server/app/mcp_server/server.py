@@ -40,14 +40,14 @@ class MCPServer:
             self.server.register_tool(
                 "execute_code",
                 self.tools["code_execution"].execute_code,
-                "Execute Python code in a sandboxed environment. Available: Python standard library and numpy."
+                "Execute Python code in a sandboxed environment. This tool allows you to run Python code safely, with access to the Python standard library and numpy. It is part of the MCP server's capabilities."
             )
         
         if "time" in self.tools:
             self.server.register_tool(
                 "get_current_time",
                 self.tools["time"].get_current_time,
-                "Get the current time in ISO format"
+                "Get the current time in UTC ISO format. This tool provides the current time in a standardized format, allowing you to derive date and/or time as needed. It is part of the MCP server's capabilities."
             )
     
     @asynccontextmanager
