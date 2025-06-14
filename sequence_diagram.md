@@ -1,92 +1,174 @@
-# System Prompt for LLM
+# System Architecture Documentation
 
-You are an AI assistant with access to an MCP (Model Control Protocol) server that provides various tools to help you assist users. The MCP server is running locally and provides the following capabilities:
+## Overview
 
-1. Time Tool:
-   - Function: get_current_time
-   - Description: Get the current time in UTC ISO format. This tool provides the current time in a standardized format, allowing you to derive date and/or time as needed. It is part of the MCP server's capabilities.
-   - Response Format: Returns time in UTC ISO format (e.g., "2023-10-01T12:00:00+00:00 UTC")
+This MCP (Model Control Protocol) system consists of 5 microservices orchestrated via Docker Compose:
 
-2. Code Execution Tool:
-   - Function: execute_code
-   - Description: Execute Python code in a sandboxed environment. This tool allows you to run Python code safely, with access to the Python standard library and numpy. It is part of the MCP server's capabilities.
-   - Requirements:
-     * Code must be provided as plain text, without markdown code blocks or backticks
-     * No comments should be included in the code
-     * Code must be syntactically valid Python
-     * Code must be self-contained (no external dependencies beyond standard library and numpy)
-   - Error Handling:
-     * If code raises an exception, the response will include the full traceback
-     * If code has syntax errors, the response will include the syntax error message
-     * If code is not properly formatted (e.g., includes markdown), the request will be rejected
-   - Error Response Behavior:
-     * When you receive a traceback or error message, DO NOT automatically retry the code execution
-     * Instead, analyze the error and:
-       1. If it's a syntax error, fix the syntax and try once more
-       2. If it's a runtime error, explain the error to the user and ask if they want you to try a different approach
-       3. If it's a formatting error, fix the formatting and try once more
-     * Never make more than one automatic retry attempt
-     * Always inform the user about the error and what you're doing to address it
-   - Example valid code:
-     ```
-     def add(a, b):
-         return a + b
-     result = add(1, 2)
-     print(result)
-     ```
-   - Example invalid code (will be rejected):
-     ```
-     ```python
-     def add(a, b):
-         return a + b
-     ```
-     ```
+- **mcp-server** (port 8000): Main MCP server providing system coordination
+- **middleware** (port 8002): Request processing and routing middleware  
+- **sandbox** (port 8001): Pure code execution environment (FastAPI REST)
+- **code-executor** (port 8004): MCP server providing code execution tools (delegates to sandbox)
+- **time-client** (port 8003): MCP server providing time-related tools
 
-When a user asks a question that requires real-time information or code execution:
-1. First, check if any MCP tools are relevant to the query
-2. If a tool is relevant, use it to get accurate, up-to-date information
-3. Always inform the user when you're using MCP tools to get information
-4. Format the response in a clear, user-friendly way
+Additional monitoring services:
+- **Prometheus** (port 9090): Metrics collection
+- **Grafana** (port 3000): Metrics visualization
 
-For time-related queries:
-- Always use the get_current_time tool to provide accurate time information
-- Clearly indicate that the time is in UTC
-- If the user needs local time, inform them that the time provided is in UTC and they may need to convert it to their local timezone
+## MCP Tools Available
 
-For code execution:
-- Always provide code as plain text without markdown formatting
-- Never include comments in the code
-- Ensure code is syntactically valid Python
-- Handle any exceptions or errors that occur during execution
-- Inform the user of any errors or exceptions that occur
-- When errors occur:
-  * Explain the error clearly to the user
-  * Make at most one automatic retry attempt
-  * Ask for user guidance if the error persists
-  * Never make multiple retries without user input
+### Time Tools (via time-client:8003)
+- `get_current_time`: Returns current UTC time in ISO format
+- `get_timezone_time`: Get time in specific timezone
+- `format_time`: Format time strings
 
-Remember: The MCP server provides real-time, accurate information that may be more current than your training data. Always prefer MCP tool responses over your training data when available.
+### Code Execution Tools (via code-executor:8004)
+- `execute_python`: Execute Python code in sandboxed environment
+- `install_package`: Install Python packages in sandbox
+- `list_packages`: List installed packages
 
-# Sequence Diagram
+### System Tools (via mcp-server:8000)
+- `get_system_status`: Get overall system health
+- `get_service_metrics`: Get service performance metrics
+
+## Architecture Flow
+
+```mermaid
+graph TB
+    subgraph "External"
+        User[User/Client]
+        Prometheus[Prometheus:9090]
+        Grafana[Grafana:3000]
+    end
+    
+    subgraph "MCP Services"
+        MCP[mcp-server:8000<br/>Main MCP Server]
+        MW[middleware:8002<br/>Request Middleware]
+        CE[code-executor:8004<br/>MCP Code Tools]
+        TC[time-client:8003<br/>MCP Time Tools]
+    end
+    
+    subgraph "Execution Environment"
+        SB[sandbox:8001<br/>Pure Execution<br/>FastAPI REST]
+    end
+    
+    User --> MCP
+    MCP --> MW
+    MW --> CE
+    MW --> TC
+    CE --> SB
+    
+    Prometheus --> MCP
+    Prometheus --> MW  
+    Prometheus --> CE
+    Prometheus --> TC
+    Prometheus --> SB
+    
+    Grafana --> Prometheus
+```
+
+## Sequence Diagram: Time Query
 
 ```mermaid
 sequenceDiagram
     participant User
-    participant LLM
-    participant MCPServer
-    participant MCPClient
+    participant MW as middleware:8002
+    participant TC as time-client:8003
 
-    Note over LLM,MCPServer: Initialization Phase
-    MCPServer->>LLM: Register available tools and capabilities
-    Note over LLM: LLM is now aware of MCP server and its tools
+    User->>MW: MCP Request: get_current_time
+    MW->>TC: HTTP POST /mcp/tools/get_current_time
+    TC->>TC: Process time request
+    TC->>MW: Return time data
+    MW->>User: MCP Response: "2024-01-15T14:30:00+00:00 UTC"
+```
 
-    User->>LLM: Ask: "What time is it?"
-    Note over LLM: LLM recognizes this as a time-related query and knows it can use MCP tools
-    LLM->>MCPServer: Request available tools
-    MCPServer->>LLM: Response: List of tools including "get_current_time"
-    LLM->>MCPClient: Request: "get_current_time"
-    MCPClient->>MCPServer: Execute: "get_current_time"
-    MCPServer->>MCPClient: Response: "2023-10-01T12:00:00+00:00 UTC"
-    MCPClient->>LLM: Response: "2023-10-01T12:00:00+00:00 UTC"
-    LLM->>User: Response: "The current time is 2023-10-01T12:00:00+00:00 UTC."
+## Sequence Diagram: Code Execution
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant MW as middleware:8002
+    participant CE as code-executor:8004
+    participant SB as sandbox:8001
+
+    User->>MW: MCP Request: execute_python
+    MW->>CE: HTTP POST /mcp/tools/execute_python
+    CE->>SB: HTTP POST /execute {"code": "print('hello')"}
+    SB->>SB: Execute Python code safely
+    SB->>CE: Return execution result
+    CE->>MW: Return MCP tool response
+    MW->>User: MCP Response: execution output
+```
+
+## Service Communication
+
+### MCP Protocol
+- Standard MCP over HTTP between MCP-enabled services
+- JSON-RPC 2.0 format for tool calls
+- Automatic tool discovery and registration
+
+### REST API (Internal)
+- Sandbox uses pure FastAPI REST endpoints
+- code-executor translates MCP calls to REST calls
+- Prometheus metrics endpoints on all services
+
+### Service Discovery
+Services communicate via Docker Compose networking:
+- `mcp-server:8000` - Main MCP endpoint
+- `middleware:8002` - Request processing  
+- `sandbox:8001` - Code execution
+- `code-executor:8004` - MCP wrapper for sandbox
+- `time-client:8003` - Time services
+
+## Error Handling
+
+### Code Execution Errors
+- Syntax errors returned with traceback  
+- Runtime exceptions captured safely
+- Timeout protection (30s default)
+- Memory limits enforced
+
+### Service Failures
+- Health checks on all services
+- Graceful degradation when services unavailable
+- Retry logic with exponential backoff
+- Circuit breaker patterns
+
+## Monitoring
+
+### Metrics Collection
+- Prometheus scrapes `/metrics` endpoints
+- Custom metrics for tool usage, latency, errors
+- System resource monitoring
+
+### Visualization  
+- Grafana dashboards for service health
+- Real-time performance monitoring
+- Error rate tracking and alerting
+
+## Usage Examples
+
+### Direct MCP Client
+```python
+import httpx
+
+# Call time tool
+response = httpx.post("http://localhost:8000/mcp/tools/get_current_time", 
+                     json={"params": {}})
+
+# Call code execution  
+response = httpx.post("http://localhost:8000/mcp/tools/execute_python",
+                     json={"params": {"code": "print('Hello, World!')"}})
+```
+
+### Health Checks
+```bash
+# Check all services
+curl http://localhost:8000/health
+curl http://localhost:8002/health  
+curl http://localhost:8001/health
+curl http://localhost:8004/health
+curl http://localhost:8003/health
+
+# View metrics
+curl http://localhost:8000/metrics
 ``` 

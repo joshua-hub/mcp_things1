@@ -1,24 +1,33 @@
+"""MCP server entry point."""
 import asyncio
+import sys
 import uvicorn
-import os
-from typing import List
+from .server import app, initialize_server
 
-from .server import MCPServer
+async def run_stdio_server():
+    """Run the MCP server using stdio streams."""
+    try:
+        await initialize_server()
+    except Exception as e:
+        print(f"Failed to initialize MCP server: {e}", file=sys.stderr)
+        sys.exit(1)
+
+async def run_servers():
+    """Run both stdio and FastAPI servers."""
+    # Start the stdio server
+    stdio_task = asyncio.create_task(run_stdio_server())
+    
+    # Start the FastAPI server
+    config = uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="info")
+    server = uvicorn.Server(config)
+    await server.serve()
+    
+    # Wait for stdio server
+    await stdio_task
 
 def main():
-    """Main entry point for running the MCP server."""
-    # Get enabled tools from environment variable
-    enabled_tools = os.getenv("MCP_ENABLED_TOOLS", "").split(",")
-    enabled_tools = [t.strip() for t in enabled_tools if t.strip()]
-    
-    # Create and run server
-    server = MCPServer(enabled_tools=enabled_tools if enabled_tools else None)
-    app = server.get_server().app
-    app.lifespan = server.lifespan
-    
-    config = uvicorn.Config(app, host="0.0.0.0", port=8000)
-    server = uvicorn.Server(config)
-    asyncio.run(server.serve())
+    """Main entry point."""
+    asyncio.run(run_servers())
 
 if __name__ == "__main__":
     main()

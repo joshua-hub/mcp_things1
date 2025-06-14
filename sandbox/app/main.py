@@ -1,3 +1,4 @@
+"""Pure code execution sandbox."""
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, constr
 import subprocess
@@ -5,8 +6,19 @@ import os
 from pathlib import Path
 import re
 import uvicorn
+import logging
+from typing import Dict, Any
+import sys
 
-app = FastAPI()
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    stream=sys.stdout
+)
+logger = logging.getLogger(__name__)
+
+app = FastAPI(title="Code Execution Sandbox")
 
 WORKSPACE_DIR = Path("/app/workspace")
 
@@ -59,41 +71,48 @@ def validate_package_name(package: str) -> bool:
     
     return True
 
-@app.post("/execute", response_model=CodeResponse)
+@app.post("/execute", response_model=Dict[str, Any])
 async def execute_code(request: CodeRequest):
+    """
+    Execute Python code in a sandboxed environment.
+    
+    Args:
+        request: CodeRequest containing the Python code to execute
+        
+    Returns:
+        Dict containing execution results or error information
+    """
     try:
-        # Create a temporary Python file in the workspace
-        code_file = WORKSPACE_DIR / "temp.py"
-        code_file.write_text(request.code)
-
-        # Execute the code and capture output
-        process = subprocess.run(
-            ['python3', str(code_file)],
-            capture_output=True,
-            text=True,
-            cwd=str(WORKSPACE_DIR),
-            timeout=5  # 5 second timeout
-        )
-
-        # Clean up
-        code_file.unlink()
-
-        return CodeResponse(
-            success=True,
-            output=process.stdout,
-            error=process.stderr
-        )
-
-    except subprocess.TimeoutExpired:
-        raise HTTPException(
-            status_code=400,
-            detail="Execution timed out"
-        )
+        # Create a temporary file in the workspace
+        workspace_dir = "/app/workspace"
+        os.makedirs(workspace_dir, exist_ok=True)
+        
+        # Execute the code
+        logger.info(f"Executing code in sandbox")
+        result = {}
+        
+        # Create a new namespace for execution
+        namespace = {}
+        
+        # Execute the code
+        exec(request.code, namespace)
+        
+        # Get any output variables
+        for key, value in namespace.items():
+            if not key.startswith('__'):
+                result[key] = str(value)
+        
+        return {
+            "status": "success",
+            "result": result
+        }
+        
     except Exception as e:
-        raise HTTPException(
-            status_code=400,
-            detail=str(e)
-        )
+        logger.error(f"Error executing code: {str(e)}")
+        return {
+            "status": "error",
+            "error": str(e)
+        }
 
 @app.post("/pip/install", response_model=CodeResponse)
 async def pip_install(request: PipRequest):
@@ -125,7 +144,10 @@ async def pip_install(request: PipRequest):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+@app.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    return {"status": "healthy"}
+
 if __name__ == "__main__":
-    # Ensure workspace directory exists and is writable
-    WORKSPACE_DIR.mkdir(exist_ok=True)
-    uvicorn.run(app, host="0.0.0.0", port=5000) 
+    uvicorn.run(app, host="0.0.0.0", port=8001) 

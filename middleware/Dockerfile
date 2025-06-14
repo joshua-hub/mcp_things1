@@ -14,7 +14,7 @@ RUN python3 -m venv /venv
 ENV PATH="/venv/bin:$PATH"
 
 # Install Python dependencies
-COPY mcp-server/requirements.txt .
+COPY middleware/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 FROM python:3.12-alpine
@@ -39,7 +39,7 @@ ENV PATH="/venv/bin:$PATH"
 WORKDIR /app
 
 # Copy application code with correct ownership
-COPY --chown=appuser:appgroup mcp-server/app/ /app/
+COPY --chown=appuser:appgroup middleware/app/ /app/
 
 # Clean up the virtual environment and remove shells for security
 RUN find /venv -type f -name "*.so" -exec strip {} \; 2>/dev/null || true \
@@ -61,4 +61,4 @@ ENV PYTHONPATH="/venv/lib/python3.12/site-packages" \
     PYTHONUNBUFFERED=1
 
 # Run the server using full path to Python interpreter
-CMD ["/venv/bin/python", "-m", "uvicorn", "mcp_server.server:app", "--host", "0.0.0.0", "--port", "8000"] 
+CMD ["/venv/bin/python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002"] 
