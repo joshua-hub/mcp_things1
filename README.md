@@ -4,7 +4,7 @@ A distributed Model Context Protocol (MCP) implementation featuring secure code 
 
 ## Architecture Overview
 
-The system consists of five main services orchestrated via Docker Compose:
+The system consists of six main services orchestrated via Docker Compose:
 
 ### 🚀 **MCP Server** (`mcp-server`)
 - **Port**: 8000
@@ -19,22 +19,28 @@ The system consists of five main services orchestrated via Docker Compose:
 - **Features**: Chat API, tool orchestration, service health monitoring
 
 ### 🛡️ **Sandbox** (`sandbox`)
-- **Port**: 8001  
-- **Role**: Secure Python code execution environment
+- **Port**: 8001 (internal only)
+- **Role**: Secure Python code execution environment  
 - **Technology**: FastAPI-MCP with security controls
 - **Features**: Code execution, package installation, security validation
 
 ### 💻 **Code Executor** (`code-executor`)
-- **Port**: 8003
+- **Port**: 8002 (internal only)
 - **Role**: MCP client that forwards code execution to sandbox
 - **Technology**: FastAPI-MCP client
 - **Features**: Tool interface for code execution
 
 ### ⏰ **Time Client** (`time-client`)
-- **Port**: 8003
+- **Port**: 8003 (internal only)
 - **Role**: Time-related MCP tools
 - **Technology**: FastAPI-MCP client
 - **Features**: Current time retrieval in UTC
+
+### 🤖 **Ollama** (`ollama`)
+- **Port**: 11434
+- **Role**: Local LLM inference engine
+- **Technology**: Ollama with GPU acceleration
+- **Features**: Local model hosting, OpenAI-compatible API, model management
 
 ## Features
 
@@ -68,6 +74,7 @@ The system consists of five main services orchestrated via Docker Compose:
 ### Prerequisites
 - Docker and Docker Compose
 - Git
+- NVIDIA GPU (optional, for Ollama acceleration)
 
 ### Installation
 
@@ -76,21 +83,32 @@ The system consists of five main services orchestrated via Docker Compose:
 git clone <repository-url>
 cd mcp_things1
 
+# Create data directories for persistent storage
+mkdir -p data/grafana data/prometheus
+
 # Start all services
 docker-compose up --build
 ```
 
 ### Service Endpoints
 
+**External Services**:
+
 | Service | URL | Description |
 |---------|-----|-------------|
 | MCP Server | http://localhost:8000 | Main MCP coordinator |
 | Middleware | http://localhost:8002 | Chat and LLM interface |
-| Sandbox | http://localhost:8001 | Secure code execution |
-| Time Client | http://localhost:8003 | Time-related tools |
-| Code Executor | http://localhost:8004 | Code execution proxy |
+| Ollama | http://localhost:11434 | Local LLM inference |
 | Prometheus | http://localhost:9090 | Metrics collection |
 | Grafana | http://localhost:3000 | Metrics visualization |
+
+**Internal Services** (no external access):
+
+| Service | Internal Port | Description |
+|---------|---------------|-------------|
+| Sandbox | 8001 | Secure code execution |
+| Time Client | 8003 | Time-related tools |
+| Code Executor | 8002 | Code execution proxy |
 
 ### API Usage
 
@@ -105,27 +123,18 @@ curl -X POST http://localhost:8002/chat \
   }'
 ```
 
-#### Direct Code Execution
-```bash
-curl -X POST http://localhost:8001/execute \
-  -H "Content-Type: application/json" \
-  -d '{
-    "code": "print(\"Hello from MCP Sandbox!\")"
-  }'
-```
-
 #### Health Checks
 ```bash
-# Check all services
-curl http://localhost:8000/health
-curl http://localhost:8001/health  
-curl http://localhost:8002/health
-curl http://localhost:8003/health
-curl http://localhost:8004/health
+# Check external services
+curl http://localhost:8000/health  # MCP Server
+curl http://localhost:8002/health  # Middleware
 
 # Check monitoring
 curl http://localhost:9090  # Prometheus
 curl http://localhost:3000  # Grafana (login: admin/admin)
+
+# Internal services (sandbox, time-client, code-executor) 
+# are not accessible from host - they communicate via Docker network
 ```
 
 ## Development
@@ -149,6 +158,12 @@ mcp_things1/
 ├── time-client/               # Time tools MCP client
 │   ├── app/time_client/       # Time tool implementation
 │   └── Dockerfile
+├── data/                      # Persistent data (host mounts)
+│   ├── grafana/               # Grafana data
+│   └── prometheus/            # Prometheus data
+├── monitoring/                # Monitoring configuration
+│   ├── prometheus.yml         # Prometheus config
+│   └── grafana/               # Grafana config
 ├── workspace/                 # Shared workspace volume
 ├── examples/                  # Usage examples
 └── docs/                      # Documentation
@@ -167,9 +182,24 @@ Each service can be configured via environment variables:
 - `OPENAI_BASE_URL`: Custom OpenAI-compatible endpoint
 
 #### Ollama Integration
-The middleware supports Ollama running on the host:
-- Default URL: `http://host.docker.internal:11434`
-- Automatic health monitoring
+Ollama is integrated directly into the Docker Compose stack:
+- **Service URL**: `http://ollama:11434`
+- **GPU Support**: Automatic NVIDIA GPU detection and acceleration
+- **Persistent Storage**: Models stored in `~/docker-data/ollama`
+- **Health Monitoring**: Automatic health checks and dependency management
+- **Configuration**: Uses OpenAI-compatible API at `/v1/chat/completions`
+
+**Environment Variables**:
+- `LLM_BASE_URL=http://ollama:11434/v1` (default)
+- `LLM_API_KEY=ollama` (default)  
+- `LLM_MODEL_NAME=llama3.1:latest` (default)
+
+**Model Management**:
+```bash
+# Pull models via Ollama service
+docker-compose exec ollama ollama pull llama3.1:latest
+docker-compose exec ollama ollama list
+```
 
 ### Development Workflow
 
@@ -204,7 +234,8 @@ The middleware supports Ollama running on the host:
 - Non-root user execution
 
 ### Network Security
-- Service isolation via Docker networks
+- Automatic service isolation via Docker Compose default networking
+- Service-to-service communication using service names as hostnames
 - Health check validation
 - CORS configuration
 - Input validation
@@ -232,6 +263,22 @@ All services expose standard health endpoints:
 - Structured logging across all services
 - Request/response logging
 - Error tracking and reporting
+
+## Storage and Networking
+
+### Storage Architecture
+The system uses **host bind mounts** instead of Docker volumes for better portability and data management:
+- **Monitoring Data**: `./data/grafana`, `./data/prometheus` 
+- **Ollama Models**: `~/docker-data/ollama` (user home directory)
+- **Configuration Files**: Mounted read-only from host
+- **Benefits**: Easy backup, direct file access, no Docker volume management
+
+### Networking
+Uses **Docker Compose default networking** for simplicity:
+- All services communicate via service names (e.g., `http://ollama:11434`)
+- No custom network configuration required
+- Automatic service discovery and DNS resolution
+- Container isolation with controlled inter-service communication
 
 ## Deployment
 

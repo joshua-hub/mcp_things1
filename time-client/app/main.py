@@ -11,14 +11,14 @@ logger = logging.getLogger(__name__)
 # Initialize FastAPI app
 app = FastAPI(title="Time Tool")
 
-@app.get("/current-time", operation_id="get_current_time", summary="Get the current time in UTC ISO format")
+@app.get("/current-time", operation_id="get_current_time", summary="Get the current time in UTC format")
 async def get_current_time() -> str:
-    """Get the current time in UTC ISO format.
+    """Get the current time in UTC format.
     
     Returns:
-        Current time in UTC ISO format
+        Current time in yyyy-mm-dd HH:MM UTC format
     """
-    current_time = datetime.now(timezone.utc).isoformat() + " UTC"
+    current_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     logger.info(f"Time tool returning: {current_time}")
     return current_time
 

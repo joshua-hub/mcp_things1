@@ -25,11 +25,14 @@ def send_to_middleware(prompt: str, endpoint: str = "http://localhost:8002") -> 
     """
     
     # Prepare the request payload
-    # This is a basic structure - might need adjustment based on actual middleware API
+    # Based on ChatRequest model in middleware: expects messages array
     payload = {
-        "message": prompt,
-        "timestamp": "",
-        "request_id": f"test_{hash(prompt) % 10000}"
+        "messages": [
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ]
     }
     
     headers = {

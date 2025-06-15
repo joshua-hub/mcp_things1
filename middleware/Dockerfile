@@ -61,4 +61,4 @@ ENV PYTHONPATH="/venv/lib/python3.12/site-packages" \
     PYTHONUNBUFFERED=1
 
 # Run the server using full path to Python interpreter
-CMD ["/venv/bin/python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002"] 
+CMD ["/venv/bin/python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8002"] 
